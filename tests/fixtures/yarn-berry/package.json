@@ -1,0 +1,12 @@
+{
+  "name": "yarn-berry",
+  "version": "1.0.0",
+  "packageManager": "yarn@4.0.0",
+  "dependencies": {
+    "react": "^18.3.1",
+    "@scope/ui": "^2.0.0",
+    "my-alias": "npm:underscore@^1.13.0",
+    "lodash": "^4.17.21",
+    "some-link": "link:../foo"
+  }
+}

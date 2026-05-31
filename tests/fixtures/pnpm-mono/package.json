@@ -1,0 +1,9 @@
+{
+  "name": "pnpm-mono",
+  "version": "1.0.0",
+  "private": true,
+  "engines": { "node": ">=20" },
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  }
+}

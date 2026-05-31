@@ -1,0 +1,8 @@
+{
+  "name": "npm-mono",
+  "version": "1.0.0",
+  "workspaces": ["packages/*"],
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}

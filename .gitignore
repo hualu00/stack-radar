@@ -1,0 +1,16 @@
+node_modules/
+dist/
+coverage/
+*.log
+.DS_Store
+
+# Claude Code local runtime state
+.claude/
+
+# Stack Radar local output (generated)
+.stack-radar/
+
+# Internal docs — never published
+PLAN.md
+EXECUTION_GUIDE.md
+HANDOFF.md

@@ -1,0 +1,8 @@
+{
+  "name": "ui",
+  "version": "1.0.0",
+  "dependencies": {
+    "@tanstack/react-query": "^5.59.0",
+    "old-pkg": "^2.0.0"
+  }
+}
