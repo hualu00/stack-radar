@@ -226,10 +226,6 @@ Everything Stack Radar writes lives under `.stack-radar/` and should be gitignor
     └── trends-extractions/     AI extractions (watch-trends)
 ```
 
-## Project status
-
-Milestones M1–M7 + M9 are complete; **285 tests** pass with zero network and zero subprocess. M8 (GitHub Actions weekly automation) is the only remaining milestone. See [HANDOFF.md](HANDOFF.md) for milestone-by-milestone status and [PLAN.md](PLAN.md) for full design rationale; [EXECUTION_GUIDE.md](EXECUTION_GUIDE.md) holds the per-milestone execution plan.
-
 ## License
 
 [MIT](package.json)
