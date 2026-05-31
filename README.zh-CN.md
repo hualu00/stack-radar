@@ -226,10 +226,6 @@ Stack Radar 写出的所有东西都在 `.stack-radar/` 下，建议加入 gitig
     └── trends-extractions/     AI 抽取缓存（watch-trends）
 ```
 
-## 项目状态
-
-Milestone M1–M7 + M9 已完成；**285 个测试**全绿，零网络、零子进程。M8（GitHub Actions 周度自动化）是唯一剩余的 milestone。逐 milestone 状态见 [HANDOFF.md](HANDOFF.md)；完整设计推导见 [PLAN.md](PLAN.md)；按 milestone 的执行手册见 [EXECUTION_GUIDE.md](EXECUTION_GUIDE.md)。
-
 ## License
 
 [MIT](package.json)
