@@ -113,11 +113,12 @@ function renderAi(ai: TrendAiSummary): string[] {
   out.push('## AI extraction');
   out.push('');
   if (ai.dry_run) {
-    out.push('- AI dry-run: prompts printed, no API calls');
+    out.push(`- AI dry-run: prompts printed, no calls (backend ${ai.backend})`);
   } else {
-    out.push(`- Model: ${ai.model}`);
-    out.push(`- Items: ${ai.items} | API calls: ${ai.calls} | from cache: ${ai.cached} | failed: ${ai.errors}`);
-    out.push(`- Tokens: ${ai.input_tokens} input / ${ai.output_tokens} output`);
+    out.push(`- Backend: ${ai.backend} | model: ${ai.model}`);
+    out.push(`- Items: ${ai.items} | AI calls: ${ai.calls} | from cache: ${ai.cached} | failed: ${ai.errors}`);
+    // codex CLI doesn't surface token counts → say so rather than print a misleading 0/0.
+    out.push(ai.backend === 'codex-cli' ? '- Tokens: not reported by the codex CLI' : `- Tokens: ${ai.input_tokens} input / ${ai.output_tokens} output`);
     if (ai.errors > 0) out.push(`- ⚠️ ${ai.errors} item(s) could not be analyzed (provider error) — the watchlist may be incomplete this run`);
   }
   return out;

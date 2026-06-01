@@ -4,6 +4,8 @@
  * enters the upgrade scoring (PLAN §2.6). State persists in `.stack-radar/trends.json`.
  */
 
+import type { AiBackend } from './ai.js';
+
 /**
  * A community feed we poll. `group` is the PUBLISHER — independence is counted
  * by group, so two feeds from the same publisher (e.g. a blog + a release feed)
@@ -94,6 +96,8 @@ export interface WatchlistEntry {
 /** Run-level AI summary for the watchlist appendix (M9 analogue of AiRunSummary). */
 export interface TrendAiSummary {
   model: string;
+  /** Which backend served this run (api | claude-cli | codex-cli). */
+  backend: AiBackend;
   /** Feed items sent through extraction (incl. cached / degraded). */
   items: number;
   /** Real API calls (excludes cache hits + dry-run). */

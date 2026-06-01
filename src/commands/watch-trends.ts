@@ -1,8 +1,8 @@
 import { join, resolve } from 'node:path';
-import { DEFAULT_AI_MODEL } from '../ai/client.js';
+import { type AiBackend, CLI_ADAPTERS, type CliRunner, createCliTransport, resolveModel } from '../ai/cli-transport.js';
 import type { LlmPrompt } from '../ai/transport.js';
 import { aggregate } from '../trends/aggregate.js';
-import { type TrendExtractor, createTrendExtractor } from '../trends/extract.js';
+import { MAX_OUTPUT_TOKENS, type TrendExtractor, createTrendExtractor } from '../trends/extract.js';
 import { FEED_SOURCES, fetchFeeds } from '../trends/feeds.js';
 import { canonicalToolKey } from '../trends/relations.js';
 import { loadTrendStore } from '../trends/store.js';
@@ -15,6 +15,8 @@ import { readJson, writeText } from '../utils/fs.js';
 import { type Fetcher, defaultFetcher } from '../utils/http.js';
 
 const EXTRACT_CONCURRENCY = 4;
+/** CLI backends spawn agentic child processes — keep the fan-out at 1 (see recommend.ts). */
+const CLI_CONCURRENCY = 1;
 
 export interface WatchTrendsOptions {
   repo: string;
@@ -27,12 +29,18 @@ export interface WatchTrendsOptions {
   /** Re-extract even when a cached extraction exists. */
   refresh?: boolean;
   aiModel?: string;
+  /** Which AI backend to use (default 'api' = Anthropic API). 'claude-cli'/'codex-cli' shell out to the local CLI. */
+  aiBackend?: AiBackend;
+  /** Override the local AI CLI executable path (with a CLI backend). */
+  aiCommand?: string;
   /** Write the watchlist to this exact path instead of community-watchlist.md. */
   out?: string;
   // ---- test seams (offline) ----
   fetcher?: Fetcher;
   sources?: readonly FeedSource[];
   extractor?: TrendExtractor;
+  /** Injected in tests so a CLI backend runs offline (no real subprocess). */
+  cliRunner?: CliRunner;
 }
 
 /**
@@ -47,7 +55,8 @@ export async function runWatchTrends(options: WatchTrendsOptions): Promise<void>
   // dates and ISO-week buckets stay UTC. observed_at is UTC (it's part of week math).
   const asOf = options.asOf ?? localToday();
   const now = options.now ?? utcToday();
-  const model = options.aiModel ?? DEFAULT_AI_MODEL;
+  const backend = options.aiBackend ?? 'api';
+  const model = resolveModel(backend, options.aiModel);
 
   const stack = readJson<StackJson>(join(repoPath, '.stack-radar', 'stack.json'));
   const hasStack = stack !== null && Array.isArray(stack.items);
@@ -56,26 +65,34 @@ export async function runWatchTrends(options: WatchTrendsOptions): Promise<void>
     console.error('WARNING: no .stack-radar/stack.json — Signals are disabled (every trend stays Emerging). Run `stack-radar scan` first.');
   }
 
-  // Fast-fail on a missing key BEFORE any network, unless dry-run / injected.
-  if (!options.dryRun && !options.extractor && !process.env.ANTHROPIC_API_KEY) {
-    throw new Error('ANTHROPIC_API_KEY is not set — required for `watch-trends` (or use --dry-run).');
+  // Fast-fail on a missing key BEFORE any network, unless dry-run / injected. Only the api
+  // backend needs a key; the CLI backends ride the CLI's own subscription login.
+  if (backend === 'api' && !options.dryRun && !options.extractor && !process.env.ANTHROPIC_API_KEY) {
+    throw new Error('ANTHROPIC_API_KEY is not set — required for `watch-trends` with the api backend (use --dry-run, or --ai-backend claude-cli|codex-cli).');
   }
 
   const sources = options.sources ?? FEED_SOURCES;
   const { items, failed } = await fetchFeeds(options.fetcher ?? defaultFetcher, sources);
 
+  // CLI backends inject a CLI-backed transport; api passes none → createTrendExtractor builds the Anthropic default.
+  const transport =
+    backend === 'api'
+      ? undefined
+      : createCliTransport({ adapter: CLI_ADAPTERS[backend], model, command: options.aiCommand, maxTokens: MAX_OUTPUT_TOKENS, runner: options.cliRunner });
   const extractor =
     options.extractor ??
     createTrendExtractor({
       model,
+      backend,
+      transport,
       cache: new Cache(join(repoPath, '.stack-radar', 'cache')),
       dryRun: options.dryRun,
       refresh: options.refresh,
       onDryRun: printPrompt,
     });
 
-  // dry-run keeps prompt output ordered; otherwise bound the API/subprocess fan-out.
-  const concurrency = options.dryRun ? 1 : EXTRACT_CONCURRENCY;
+  // dry-run keeps prompt output ordered; CLI backends spawn subprocesses → keep their fan-out at 1.
+  const concurrency = options.dryRun ? 1 : backend === 'api' ? EXTRACT_CONCURRENCY : CLI_CONCURRENCY;
   const results = await mapWithConcurrency(items, concurrency, async (item) => ({ item, res: await extractor.extract(item) }));
 
   const mentions: TrendMention[] = [];
@@ -113,6 +130,7 @@ export async function runWatchTrends(options: WatchTrendsOptions): Promise<void>
 
   const aiUsage: TrendAiSummary = {
     model,
+    backend,
     items: items.length,
     calls,
     cached,
@@ -129,8 +147,8 @@ export async function runWatchTrends(options: WatchTrendsOptions): Promise<void>
   if (failed.length > 0) console.log(`  Feeds failed: ${failed.length}`);
   console.log(
     options.dryRun
-      ? `  AI: dry-run (no calls), model ${model}`
-      : `  AI: ${model} — ${calls} calls, ${cached} cached, ${errors} failed, ${inputTokens}/${outputTokens} tok`,
+      ? `  AI: dry-run (no calls), backend ${backend}, model ${model}`
+      : `  AI: ${model} (${backend}) — ${calls} calls, ${cached} cached, ${errors} failed, ${backend === 'codex-cli' ? 'tokens n/a' : `${inputTokens}/${outputTokens} tok`}`,
   );
   console.log(`  Mentions: +${added} new (${store.mentions().length} total)`);
   console.log(`  Signals: ${signals} | Watchlist entries: ${entries.length}`);

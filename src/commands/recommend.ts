@@ -1,5 +1,6 @@
 import { join, resolve } from 'node:path';
-import { DEFAULT_AI_MODEL, createAiClient } from '../ai/client.js';
+import { createAiClient } from '../ai/client.js';
+import { type AiBackend, CLI_ADAPTERS, type CliRunner, createCliTransport, resolveModel } from '../ai/cli-transport.js';
 import type { AnalysisPrompt } from '../ai/prompts/changelog-analysis.js';
 import { applyDecision, effectiveRecommendation, isActiveSnooze, resolveDecision } from '../decisions/apply.js';
 import { loadDecisions } from '../decisions/store.js';
@@ -32,14 +33,20 @@ export interface RecommendOptions {
   useAi?: boolean;
   /** With useAi: print prompts without calling the API. */
   dryRun?: boolean;
-  /** AI model override (default claude-sonnet-4-6). */
+  /** AI model override. Default depends on the backend (api → sonnet; claude-cli → Opus). */
   aiModel?: string;
+  /** Which AI backend to use (default 'api' = Anthropic API). 'claude-cli'/'codex-cli' shell out to the local CLI. */
+  aiBackend?: AiBackend;
+  /** Override the local AI CLI executable path (with a CLI backend). */
+  aiCommand?: string;
   /** Re-analyze with the AI even if a cached analysis exists. */
   refresh?: boolean;
   /** Injected in tests so AI wiring runs offline. */
   aiClient?: { analyze(input: AnalysisInput): Promise<{ evidence: AiEvidence; usage: import('../types/ai.js').TokenUsage | null; cached: boolean }> };
   /** Injected in tests so the code-relevance scan runs offline. */
   searcher?: ApiSearcher;
+  /** Injected in tests so a CLI backend runs offline (no real subprocess). */
+  cliRunner?: CliRunner;
   /** Called once before the AI fan-out begins; CLI prints a header. */
   onAiStart?: (info: AiStartInfo) => void;
   /** Called once per record as AI analysis completes (in completion order). */
@@ -52,6 +59,9 @@ interface ResolvedProfile {
 }
 
 const AI_CONCURRENCY = 4;
+/** CLI backends spawn agentic child processes — keep the fan-out at 1 to avoid
+ * provider/session locks, rate limits, and local config writes. */
+const CLI_CONCURRENCY = 1;
 
 /** A record is scored into the 6 sections only if it has a real, resolvable update. */
 function isScorable(r: UpdateRecord): boolean {
@@ -163,7 +173,8 @@ export async function runRecommend(options: RecommendOptions): Promise<void> {
   console.log(`Recommended ${scored.length - snoozed} updates (of ${updates.length} records)`);
   console.log(resolvedProfile ? `  Profile: ${profile?.product_type} / ${profile?.tech_taste} (${resolvedProfile.source})` : '  Profile: none (global scoring)');
   if (aiUsage) {
-    console.log(aiUsage.dry_run ? `  AI: dry-run (no calls), model ${aiUsage.model}` : `  AI: ${aiUsage.model} — ${aiUsage.calls} calls, ${aiUsage.cached} cached, ${aiUsage.input_tokens}/${aiUsage.output_tokens} tok`);
+    const tok = aiUsage.backend === 'codex-cli' ? 'tokens n/a' : `${aiUsage.input_tokens}/${aiUsage.output_tokens} tok`;
+    console.log(aiUsage.dry_run ? `  AI: dry-run (no calls), backend ${aiUsage.backend}, model ${aiUsage.model}` : `  AI: ${aiUsage.model} (${aiUsage.backend}) — ${aiUsage.calls} calls, ${aiUsage.cached} cached, ${tok}`);
   }
   console.log(`  ${summary}`);
   if (snoozed > 0) console.log(`  Snoozed (hidden): ${snoozed}`);
@@ -192,24 +203,33 @@ async function runAi(
   const relevanceByKey = new Map<string, Relevance>();
   if (!options.useAi) return { evidenceByKey, relevanceByKey, aiUsage: undefined };
 
-  const model = options.aiModel ?? DEFAULT_AI_MODEL;
+  const backend = options.aiBackend ?? 'api';
+  const model = resolveModel(backend, options.aiModel);
   // Every scorable was hidden (snoozed): nothing to analyze, so don't even require a
   // key or build a client — AI truly runs only on records the report will show.
   if (scorables.length === 0) {
     return {
       evidenceByKey,
       relevanceByKey,
-      aiUsage: { model, analyzed: 0, calls: 0, cached: 0, input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, dry_run: options.dryRun === true },
+      aiUsage: { model, backend, analyzed: 0, calls: 0, cached: 0, input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, dry_run: options.dryRun === true },
     };
   }
-  if (!options.dryRun && !options.aiClient && !process.env.ANTHROPIC_API_KEY) {
-    throw new Error('ANTHROPIC_API_KEY is not set — required for `recommend --use-ai` (or use --dry-run).');
+  // Only the api backend needs a key; the CLI backends ride the CLI's own subscription login.
+  if (backend === 'api' && !options.dryRun && !options.aiClient && !process.env.ANTHROPIC_API_KEY) {
+    throw new Error('ANTHROPIC_API_KEY is not set — required for `recommend --use-ai` with the api backend (use --dry-run, or --ai-backend claude-cli|codex-cli).');
   }
 
+  // CLI backends inject a CLI-backed transport; api passes none → createAiClient builds the Anthropic default.
+  const transport =
+    backend === 'api'
+      ? undefined
+      : createCliTransport({ adapter: CLI_ADAPTERS[backend], model, command: options.aiCommand, runner: options.cliRunner });
   const client =
     options.aiClient ??
     createAiClient({
       model,
+      backend,
+      transport,
       cache: new Cache(join(repoPath, '.stack-radar', 'cache')),
       dryRun: options.dryRun,
       refresh: options.refresh,
@@ -219,7 +239,8 @@ async function runAi(
 
   options.onAiStart?.({ total: scorables.length, model, dry_run: options.dryRun === true });
 
-  const concurrency = options.dryRun ? 1 : AI_CONCURRENCY; // keep dry-run prompt output ordered
+  // dry-run keeps prompt output ordered; CLI backends spawn subprocesses → keep their fan-out at 1.
+  const concurrency = options.dryRun ? 1 : backend === 'api' ? AI_CONCURRENCY : CLI_CONCURRENCY;
   let done = 0;
   const results = await mapWithConcurrency(scorables, concurrency, async (record) => {
     const ai = await client.analyze(buildAnalysisInput(record, profile));
@@ -269,6 +290,7 @@ async function runAi(
     relevanceByKey,
     aiUsage: {
       model,
+      backend,
       analyzed: scorables.length,
       calls,
       cached,

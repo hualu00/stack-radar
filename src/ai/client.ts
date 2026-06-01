@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { type AiEvidence, type AiResult, type AnalysisInput, emptyAiEvidence } from '../types/ai.js';
+import { type AiBackend, type AiEvidence, type AiResult, type AnalysisInput, emptyAiEvidence } from '../types/ai.js';
 import type { Cache } from '../utils/cache.js';
 import { type AnalysisPrompt, PROMPT_VERSION, buildAnalysisPrompt } from './prompts/changelog-analysis.js';
 import { type LlmTransport, type TransportResult, createAnthropicTransport } from './transport.js';
@@ -26,6 +26,9 @@ export interface AiClientOptions {
   /** Injected in tests; defaults to the real Anthropic-backed transport. */
   transport?: AiTransport;
   apiKey?: string;
+  /** Which backend produced this run — folded into the cache key so backends don't collide
+   * (omitted when 'api' so existing api caches stay byte-identical). Default 'api'. */
+  backend?: AiBackend;
   /** Called per package in dry-run with the would-be prompt. */
   onDryRun?: (input: AnalysisInput, prompt: AnalysisPrompt) => void;
 }
@@ -40,6 +43,7 @@ export function createAiClient(options: AiClientOptions = {}): AiClient {
   const model = options.model ?? DEFAULT_AI_MODEL;
   const transport = options.transport ?? createAnthropicTransport(model, options.apiKey);
   const { cache, refresh = false, dryRun = false, onDryRun } = options;
+  const backend = options.backend ?? 'api';
 
   return {
     async analyze(input: AnalysisInput): Promise<AiResult> {
@@ -64,7 +68,7 @@ export function createAiClient(options: AiClientOptions = {}): AiClient {
         };
       }
 
-      const key = cacheKey(model, input);
+      const key = cacheKey(model, backend, input);
       if (cache && !refresh) {
         const hit = cache.readJson<AiEvidence>(AI_CACHE_NAMESPACE, key);
         if (hit) return { evidence: hit, usage: null, cached: true };
@@ -91,11 +95,13 @@ export function createAiClient(options: AiClientOptions = {}): AiClient {
   };
 }
 
-/** Cache key covers everything that changes the output (codex). */
-function cacheKey(model: string, input: AnalysisInput): string {
+/** Cache key covers everything that changes the output (codex). `backend` is folded in
+ * only when it isn't 'api', so existing api cache entries keep their exact hash. */
+function cacheKey(model: string, backend: AiBackend, input: AnalysisInput): string {
   const payload = {
     v: PROMPT_VERSION,
     model,
+    ...(backend !== 'api' ? { backend } : {}),
     pkg: input.package,
     locked: input.locked_version,
     latest: input.latest_version,

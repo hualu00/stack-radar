@@ -31,7 +31,7 @@ Side commands: `init-profile` (draft `project-profile.yaml`), `scan-api-usage` (
 - **Node.js ≥ 20** (declared in [package.json](package.json))
 - **Optional: ripgrep** — used by `--use-ai` for fast API-usage grep. If `rg` is not on `PATH`, Stack Radar falls back to a pure-Node implementation with identical semantics.
 - **Optional: `GITHUB_TOKEN` or `GH_TOKEN`** — without it, `check-updates` is rate-limited and degrades to CHANGELOG-only for some packages.
-- **Optional: `ANTHROPIC_API_KEY`** — required only when you pass `--use-ai` (to `recommend` or `watch-trends`).
+- **Optional: `ANTHROPIC_API_KEY`** — required for AI features **only with the default `api` backend**. To skip the key entirely, route AI through a logged-in local CLI with `--ai-backend claude-cli` / `codex-cli` (see [Using AI](#using-ai-opt-in)).
 
 ## Install & build
 
@@ -55,7 +55,7 @@ node dist/cli.js recommend     --repo <path-to-your-repo>
 cat <path-to-your-repo>/.stack-radar/reports/*.md
 ```
 
-For evidence-grounded reports add `--use-ai` to `recommend` (requires `ANTHROPIC_API_KEY`). The first run costs a few cents; re-runs hit the local disk cache and report `API calls: 0`.
+For evidence-grounded reports add `--use-ai` to `recommend`. The default `api` backend needs `ANTHROPIC_API_KEY`; or add `--ai-backend claude-cli` (or `codex-cli`) to reuse a logged-in local CLI and skip the key. Re-runs hit the local disk cache and report `AI calls: 0`. See [Using AI](#using-ai-opt-in).
 
 ## Commands
 
@@ -99,16 +99,17 @@ Scores `updates.json` along three dimensions (urgency / risk / value), applies p
 
 ```bash
 node dist/cli.js recommend --repo <path>
-node dist/cli.js recommend --repo <path> --use-ai            # AI evidence + code relevance
-node dist/cli.js recommend --repo <path> --use-ai --dry-run  # print prompts, no API call
-node dist/cli.js recommend --repo <path> --use-ai --refresh  # re-analyze, bypass AI cache
-node dist/cli.js recommend --repo <path> --no-profile        # ignore any profile
-node dist/cli.js recommend --repo <path> --profile <path>    # explicit profile path
-node dist/cli.js recommend --repo <path> --out report.md     # write to a specific path
-node dist/cli.js recommend --repo <path> --ai-model <id>     # override model
+node dist/cli.js recommend --repo <path> --use-ai                       # AI evidence + code relevance (api backend)
+node dist/cli.js recommend --repo <path> --use-ai --ai-backend claude-cli # use your Claude Code CLI (no API key)
+node dist/cli.js recommend --repo <path> --use-ai --dry-run             # print prompts, no API/CLI call
+node dist/cli.js recommend --repo <path> --use-ai --refresh            # re-analyze, bypass AI cache
+node dist/cli.js recommend --repo <path> --no-profile                  # ignore any profile
+node dist/cli.js recommend --repo <path> --profile <path>             # explicit profile path
+node dist/cli.js recommend --repo <path> --out report.md              # write to a specific path
+node dist/cli.js recommend --repo <path> --use-ai --ai-model <id>     # override model
 ```
 
-Default report path: `.stack-radar/reports/<YYYY-MM-DD>.md`. Default AI model: `claude-sonnet-4-6`.
+Default report path: `.stack-radar/reports/<YYYY-MM-DD>.md`. Default AI model: `api` → `claude-sonnet-4-6`, `claude-cli` → Opus. See [Using AI](#using-ai-opt-in) for backends.
 
 ### `scan-api-usage`
 
@@ -144,6 +145,7 @@ Independent community radar — polls a hardcoded RSS registry (newsletters and 
 
 ```bash
 node dist/cli.js watch-trends --repo <path>
+node dist/cli.js watch-trends --repo <path> --ai-backend codex-cli  # use your Codex CLI (no API key)
 node dist/cli.js watch-trends --repo <path> --dry-run    # no API key needed; prints prompts
 node dist/cli.js watch-trends --repo <path> --refresh    # re-extract even when cached
 ```
@@ -152,15 +154,30 @@ Writes `.stack-radar/community-watchlist.md` and `.stack-radar/trends.json`. Run
 
 ## Using AI (opt-in)
 
-AI is **off by default**. Pass `--use-ai` to `recommend` or `watch-trends` and set `ANTHROPIC_API_KEY` to enable it.
+AI is **off by default**. Pass `--use-ai` to `recommend` (or just run `watch-trends`) to enable it. There are three backends, chosen with `--ai-backend`:
 
-- **Default model**: `claude-sonnet-4-6`. Override with `--ai-model <id>`.
-- **Cost**: first run on a repo of ~50 packages costs a few cents on Sonnet 4.6. Re-runs hit the local disk cache (`.stack-radar/cache/ai-analyses/`, `.stack-radar/cache/trends-extractions/`) and typically report `API calls: 0`.
-- **`--dry-run`** prints prompts without calling the API. No key needed. Nothing written to cache.
+| Backend | Auth | When to use |
+|---|---|---|
+| `api` *(default)* | `ANTHROPIC_API_KEY` (metered, pay-per-token) | CI, or no local CLI installed |
+| `claude-cli` | your logged-in **Claude Code** CLI (subscription) | reuse your Claude subscription — no API key, no per-token cost |
+| `codex-cli` | your logged-in **Codex** CLI (subscription) | reuse your ChatGPT/Codex subscription |
+
+```bash
+# Route AI through your already-logged-in local CLI instead of the metered API:
+node dist/cli.js recommend --repo <path> --use-ai --ai-backend claude-cli   # defaults to Opus
+node dist/cli.js recommend --repo <path> --use-ai --ai-backend codex-cli
+node dist/cli.js watch-trends --repo <path> --ai-backend codex-cli
+node dist/cli.js recommend --repo <path> --use-ai --ai-backend claude-cli --ai-command /path/to/claude
+```
+
+- **Default model**: `api` → `claude-sonnet-4-6` (a cost choice for metered billing); **`claude-cli` → Opus** (`claude-opus-4-8`) — a subscription has no per-token penalty, so it defaults to the strongest model; `codex-cli` → the model your Codex CLI is configured to use. Override any of them with `--ai-model <id>` (e.g. `--ai-model opus` for always-latest Opus).
+- **`ANTHROPIC_API_KEY`** is required **only for the `api` backend**. The CLI backends ride the CLI's own login, so no key is needed.
+- **Cost**: the `api` backend bills per token (first run on ~50 packages is a few cents on Sonnet). The CLI backends draw on your existing subscription instead. Re-runs of any backend hit the local disk cache (`.stack-radar/cache/ai-analyses/`, `.stack-radar/cache/trends-extractions/`) and typically report `AI calls: 0`. The cache is keyed per backend, so switching backends re-analyzes once.
+- **`--dry-run`** prints prompts without calling the API/CLI. No key needed. Nothing written to cache.
 - **`--refresh`** bypasses the AI cache and re-analyzes.
 - **What AI receives**: package metadata (name, current and latest version) + truncated changelog text + a coarse profile (`product_type`, `tech_taste`). Nothing else.
-- **What AI never receives**: your source code. Ever.
-- **Anti-fabrication**: every quote returned by the model is validated as a verbatim substring of the changelog it cites; the cited URL must be one we supplied. Quotes that fail validation are dropped and that record is marked low-quality. AI only informs Confidence and the report's Why/Evidence sections — it never changes the Recommendation.
+- **What AI never receives**: your source code. Ever. (The CLI backends are not a fully-offline local model — the prompt still goes to the vendor's remote model via the CLI's login. The "no source code" guarantee is preserved differently: each call runs the CLI with its file tools disabled / a read-only sandbox, in an empty temp directory, with a sanitized environment, so it cannot read your repo.)
+- **Anti-fabrication**: every quote returned by the model is validated as a verbatim substring of the changelog it cites; the cited URL must be one we supplied. Quotes that fail validation are dropped and that record is marked low-quality. AI only informs Confidence and the report's Why/Evidence sections — it never changes the Recommendation. Scoring-affecting fields (`mentioned_apis`, performance signals) must also be grounded in the supplied text.
 
 ## Project profile
 
@@ -202,7 +219,7 @@ Stack Radar is built around three rules:
 
 1. **Public npm only.** Queries hit hardcoded `registry.npmjs.org`. If your `.npmrc` points at a private mirror, that mirror is **not** used as a privacy signal — Stack Radar treats it as a mirror, not a source of truth about which packages are private.
 2. **Workspace package names are never sent.** Local workspace packages are excluded from registry queries (zero-leak). Internal scopes (e.g. `@yourcompany/...`) may 404 against the public registry, which is the expected behaviour.
-3. **AI never sees source code.** With `--use-ai`, only package metadata + changelog text + coarse profile fields are sent. `scan-api-usage` and the relevance grep emit `match_count` and `file_count` only — never paths, never code.
+3. **AI never sees source code.** With `--use-ai`, only package metadata + changelog text + coarse profile fields are sent. `scan-api-usage` and the relevance grep emit `match_count` and `file_count` only — never paths, never code. The local-CLI backends (`--ai-backend claude-cli`/`codex-cli`) still talk to a remote model via the CLI's own login (they are not offline), but each call runs with the CLI's file tools disabled / a read-only sandbox, in an empty temp directory, with a sanitized environment — so the CLI cannot read your repo.
 
 ## Output layout
 

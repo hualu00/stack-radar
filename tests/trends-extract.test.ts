@@ -72,6 +72,29 @@ describe('validateExtraction (quote grounding)', () => {
     expect(validateExtraction(null, text)).toEqual([]);
     expect(validateExtraction({ tools: 'nope' }, text)).toEqual([]);
   });
+
+  it('drops an ungrounded canonical_hint (not in text, canonicalizes elsewhere) but keeps the tool', () => {
+    const tools = validateExtraction(
+      { tools: [{ display_name: 'Biome', canonical_hint: 'totally-made-up-pkg', evidence_quote: 'Biome now formats and lints' }] },
+      text,
+    );
+    expect(tools).toHaveLength(1);
+    expect(tools[0]?.display_name).toBe('Biome');
+    expect(tools[0]?.canonical_hint).toBeUndefined();
+  });
+
+  it('drops a redirecting canonical_hint even when it appears verbatim in a multi-tool item', () => {
+    // '@tanstack/react-query' is present in the text and a known alias, but it canonicalizes to React
+    // Query — it must not hijack the quote-grounded "Biome" mention. Identity = display_name, not hint.
+    const multiToolText = 'Biome and React Query both shipped. See @tanstack/react-query for details.';
+    const tools = validateExtraction(
+      { tools: [{ display_name: 'Biome', canonical_hint: '@tanstack/react-query', evidence_quote: 'Biome and React Query both shipped' }] },
+      multiToolText,
+    );
+    expect(tools).toHaveLength(1);
+    expect(tools[0]?.display_name).toBe('Biome');
+    expect(tools[0]?.canonical_hint).toBeUndefined();
+  });
 });
 
 describe('createTrendExtractor', () => {

@@ -7,6 +7,7 @@ import { runRecommend } from './commands/recommend.js';
 import { runScan } from './commands/scan.js';
 import { runScanApiUsage } from './commands/scan-api-usage.js';
 import { runWatchTrends } from './commands/watch-trends.js';
+import { parseBackend } from './ai/cli-transport.js';
 import type { AiProgressEvent, AiStartInfo } from './types/ai.js';
 import { DECISION_ACTIONS, type DecisionAction } from './types/decision.js';
 
@@ -80,9 +81,11 @@ program
   .option('--profile <path>', 'project profile YAML (defaults to .stack-radar/project-profile.yaml if present)')
   .option('--no-profile', 'ignore any profile and use global scoring')
   .option('--out <file>', 'write the report to this exact path instead of the dated reports/ file')
-  .option('--use-ai', 'extract changelog evidence via the Claude API (needs ANTHROPIC_API_KEY)', false)
-  .option('--dry-run', 'with --use-ai: print the prompts without calling the API', false)
-  .option('--ai-model <model>', 'AI model to use (default: claude-sonnet-4-6)')
+  .option('--use-ai', 'extract changelog evidence via AI (api backend needs ANTHROPIC_API_KEY)', false)
+  .option('--dry-run', 'with --use-ai: print the prompts without calling the API/CLI', false)
+  .option('--ai-model <model>', 'AI model to use (default: api → claude-sonnet-4-6, claude-cli → Opus)')
+  .option('--ai-backend <backend>', 'AI backend: api | claude-cli | codex-cli (default: api)', 'api')
+  .option('--ai-command <path>', 'path to the local AI CLI executable (with --ai-backend claude-cli|codex-cli)')
   .option('--refresh', 're-run AI analysis even when a cached analysis exists', false)
   .action(
     async (opts: {
@@ -92,6 +95,8 @@ program
       useAi?: boolean;
       dryRun?: boolean;
       aiModel?: string;
+      aiBackend?: string;
+      aiCommand?: string;
       refresh?: boolean;
     }) => {
       try {
@@ -106,6 +111,8 @@ program
           useAi: opts.useAi,
           dryRun: opts.dryRun,
           aiModel: opts.aiModel,
+          aiBackend: parseBackend(opts.aiBackend ?? 'api'),
+          aiCommand: opts.aiCommand,
           refresh: opts.refresh,
           onAiStart: opts.useAi ? printAiStart : undefined,
           onAiProgress: opts.useAi ? printAiProgress : undefined,
@@ -146,12 +153,21 @@ program
   .command('watch-trends')
   .description('Watch community feeds → .stack-radar/community-watchlist.md (independent of upgrade scoring)')
   .option('--repo <path>', 'path to the repo', '.')
-  .option('--dry-run', 'print extraction prompts without calling the API', false)
+  .option('--dry-run', 'print extraction prompts without calling the API/CLI', false)
   .option('--refresh', 're-extract even when a cached extraction exists', false)
-  .option('--ai-model <model>', 'AI model to use (default: claude-sonnet-4-6)')
-  .action(async (opts: { repo: string; dryRun?: boolean; refresh?: boolean; aiModel?: string }) => {
+  .option('--ai-model <model>', 'AI model to use (default: api → claude-sonnet-4-6)')
+  .option('--ai-backend <backend>', 'AI backend: api | claude-cli | codex-cli (default: api)', 'api')
+  .option('--ai-command <path>', 'path to the local AI CLI executable (with --ai-backend claude-cli|codex-cli)')
+  .action(async (opts: { repo: string; dryRun?: boolean; refresh?: boolean; aiModel?: string; aiBackend?: string; aiCommand?: string }) => {
     try {
-      await runWatchTrends({ repo: opts.repo, dryRun: opts.dryRun, refresh: opts.refresh, aiModel: opts.aiModel });
+      await runWatchTrends({
+        repo: opts.repo,
+        dryRun: opts.dryRun,
+        refresh: opts.refresh,
+        aiModel: opts.aiModel,
+        aiBackend: parseBackend(opts.aiBackend ?? 'api'),
+        aiCommand: opts.aiCommand,
+      });
     } catch (err) {
       console.error(`stack-radar watch-trends failed: ${err instanceof Error ? err.message : String(err)}`);
       process.exitCode = 1;

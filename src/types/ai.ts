@@ -6,6 +6,11 @@
 
 import type { UpdateType } from './update.js';
 
+/** Which AI backend served a run: the Anthropic API, or a local CLI (claude/codex). */
+export type AiBackend = 'api' | 'claude-cli' | 'codex-cli';
+
+export const AI_BACKENDS: readonly AiBackend[] = ['api', 'claude-cli', 'codex-cli'];
+
 /** Classification of a single evidence item (what kind of change a quote shows). */
 export type EvidenceType = 'security' | 'breaking' | 'deprecation' | 'bugfix' | 'performance' | 'feature' | 'other';
 
@@ -93,6 +98,8 @@ export function emptyTokenUsage(): TokenUsage {
 /** Run-level AI summary for the report appendix. */
 export interface AiRunSummary {
   model: string;
+  /** Which backend served this run (api | claude-cli | codex-cli). */
+  backend: AiBackend;
   /** Records sent through analyze() (incl. cached / skipped / unavailable). */
   analyzed: number;
   /** Real API calls made (excludes cache hits, dry-run, and no-note skips). */

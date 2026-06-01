@@ -31,7 +31,7 @@ recommend     → .stack-radar/reports/<date>.md
 - **Node.js ≥ 20**（在 [package.json](package.json) 中声明）
 - **可选：ripgrep** —— `--use-ai` 使用它做 API-usage grep。如果 `PATH` 上没有 `rg`，Stack Radar 会回退到一个语义完全相同的纯 Node 实现。
 - **可选：`GITHUB_TOKEN` 或 `GH_TOKEN`** —— 不设的话 `check-updates` 会受 GitHub 速率限制，部分包会降级为只读 CHANGELOG。
-- **可选：`ANTHROPIC_API_KEY`** —— 仅在使用 `--use-ai` 时（`recommend` 或 `watch-trends`）需要。
+- **可选：`ANTHROPIC_API_KEY`** —— AI 功能**仅在默认 `api` 后端下**需要。想完全不用 key，就用 `--ai-backend claude-cli` / `codex-cli` 把 AI 走本地已登录的 CLI（见[使用 AI](#使用-ai默认关闭)）。
 
 ## 安装与构建
 
@@ -55,7 +55,7 @@ node dist/cli.js recommend     --repo <path-to-your-repo>
 cat <path-to-your-repo>/.stack-radar/reports/*.md
 ```
 
-想要带证据的报告，在 `recommend` 上加 `--use-ai`（需要 `ANTHROPIC_API_KEY`）。首次运行只需要几分钱；重跑命中本地磁盘缓存，会打印 `API calls: 0`。
+想要带证据的报告，在 `recommend` 上加 `--use-ai`。默认 `api` 后端需要 `ANTHROPIC_API_KEY`；或者加 `--ai-backend claude-cli`（或 `codex-cli`）复用本地已登录的 CLI，免去 key。重跑命中本地磁盘缓存，会打印 `AI calls: 0`。详见[使用 AI](#使用-ai默认关闭)。
 
 ## 命令
 
@@ -99,16 +99,17 @@ node dist/cli.js init-profile --repo <path> --force   # 覆盖已有 profile
 
 ```bash
 node dist/cli.js recommend --repo <path>
-node dist/cli.js recommend --repo <path> --use-ai            # AI 证据 + 代码相关性
-node dist/cli.js recommend --repo <path> --use-ai --dry-run  # 打印 prompt，不调用 API
-node dist/cli.js recommend --repo <path> --use-ai --refresh  # 重新分析，绕过 AI 缓存
-node dist/cli.js recommend --repo <path> --no-profile        # 忽略 profile
-node dist/cli.js recommend --repo <path> --profile <path>    # 显式指定 profile 路径
-node dist/cli.js recommend --repo <path> --out report.md     # 写到指定路径
-node dist/cli.js recommend --repo <path> --ai-model <id>     # 覆盖模型
+node dist/cli.js recommend --repo <path> --use-ai                       # AI 证据 + 代码相关性（api 后端）
+node dist/cli.js recommend --repo <path> --use-ai --ai-backend claude-cli # 走你的 Claude Code CLI（无需 API key）
+node dist/cli.js recommend --repo <path> --use-ai --dry-run             # 打印 prompt，不调用 API/CLI
+node dist/cli.js recommend --repo <path> --use-ai --refresh           # 重新分析，绕过 AI 缓存
+node dist/cli.js recommend --repo <path> --no-profile                 # 忽略 profile
+node dist/cli.js recommend --repo <path> --profile <path>            # 显式指定 profile 路径
+node dist/cli.js recommend --repo <path> --out report.md             # 写到指定路径
+node dist/cli.js recommend --repo <path> --use-ai --ai-model <id>    # 覆盖模型
 ```
 
-默认报告路径：`.stack-radar/reports/<YYYY-MM-DD>.md`。默认 AI 模型：`claude-sonnet-4-6`。
+默认报告路径：`.stack-radar/reports/<YYYY-MM-DD>.md`。默认 AI 模型：`api` → `claude-sonnet-4-6`，`claude-cli` → Opus。后端详见 [使用 AI](#使用-ai默认关闭)。
 
 ### `scan-api-usage`
 
@@ -144,6 +145,7 @@ node dist/cli.js feedback --repo <path> --package vite --action accept --version
 
 ```bash
 node dist/cli.js watch-trends --repo <path>
+node dist/cli.js watch-trends --repo <path> --ai-backend codex-cli  # 走你的 Codex CLI（无需 API key）
 node dist/cli.js watch-trends --repo <path> --dry-run    # 无需 API key；只打印 prompt
 node dist/cli.js watch-trends --repo <path> --refresh    # 即便有缓存也重新抽取
 ```
@@ -152,15 +154,30 @@ node dist/cli.js watch-trends --repo <path> --refresh    # 即便有缓存也重
 
 ## 使用 AI（默认关闭）
 
-AI 默认是**关闭**的。在 `recommend` 或 `watch-trends` 上加 `--use-ai` 并设置 `ANTHROPIC_API_KEY` 来启用。
+AI 默认是**关闭**的。在 `recommend` 上加 `--use-ai`（或直接运行 `watch-trends`）来启用。有三种后端，用 `--ai-backend` 选择：
 
-- **默认模型**：`claude-sonnet-4-6`。可用 `--ai-model <id>` 覆盖。
-- **成本**：在一个约 50 个依赖的仓库上，首次运行只需要几分钱。重跑会命中本地磁盘缓存（`.stack-radar/cache/ai-analyses/`、`.stack-radar/cache/trends-extractions/`），通常打印 `API calls: 0`。
-- **`--dry-run`** 打印 prompt 但不调用 API。无需 API key。不会写缓存。
+| 后端 | 认证方式 | 何时使用 |
+|---|---|---|
+| `api`（默认） | `ANTHROPIC_API_KEY`（按 token 计费） | CI，或本地没装 CLI |
+| `claude-cli` | 你已登录的 **Claude Code** CLI（订阅） | 复用你的 Claude 订阅 —— 无需 API key，不按 token 计费 |
+| `codex-cli` | 你已登录的 **Codex** CLI（订阅） | 复用你的 ChatGPT/Codex 订阅 |
+
+```bash
+# 把 AI 调用走你本地已登录的 CLI，而不是计费的 API：
+node dist/cli.js recommend --repo <path> --use-ai --ai-backend claude-cli   # 默认用 Opus
+node dist/cli.js recommend --repo <path> --use-ai --ai-backend codex-cli
+node dist/cli.js watch-trends --repo <path> --ai-backend codex-cli
+node dist/cli.js recommend --repo <path> --use-ai --ai-backend claude-cli --ai-command /path/to/claude
+```
+
+- **默认模型**：`api` → `claude-sonnet-4-6`（计费场景下的成本取舍）；**`claude-cli` → Opus**（`claude-opus-4-8`）—— 订阅不按 token 计费，所以默认用最强的模型；`codex-cli` → 你的 Codex CLI 配置的模型。都可以用 `--ai-model <id>` 覆盖（例如 `--ai-model opus` 用最新 Opus）。
+- **`ANTHROPIC_API_KEY`** 只有 `api` 后端需要。CLI 后端走 CLI 自己的登录，无需 key。
+- **成本**：`api` 后端按 token 计费（约 50 个依赖首次运行几分钱）；CLI 后端走你已有的订阅。任何后端重跑都会命中本地磁盘缓存（`.stack-radar/cache/ai-analyses/`、`.stack-radar/cache/trends-extractions/`），通常打印 `AI calls: 0`。缓存按后端分键，所以切换后端会重新分析一次。
+- **`--dry-run`** 打印 prompt 但不调用 API/CLI。无需 key。不会写缓存。
 - **`--refresh`** 绕过 AI 缓存重新分析。
 - **AI 能看到什么**：包的元信息（名称、当前版本、最新版本）+ 截断的 changelog 文本 + 粗粒度 profile 字段（`product_type`、`tech_taste`）。仅此而已。
-- **AI 永远看不到什么**：你的源码。永远不会。
-- **反编造校验**：模型返回的每条引语都会被校验为它所引用的 changelog 的原文子串；引用的 URL 必须是我们提供给它的。校验失败的引语会被丢弃，该条记录被标记为低质量。AI 只影响 Confidence 和报告的 Why / Evidence 段落 —— 它**永远不会**改变 Recommendation。
+- **AI 永远看不到什么**：你的源码。永远不会。（CLI 后端**不是**纯本地离线模型 —— prompt 仍会经 CLI 的登录发往厂商的远端模型。"不发送源码" 的保证通过另一种方式实现：每次调用都让 CLI 禁用文件工具 / 只读沙箱，运行在一个空的临时目录里，并清理环境变量，因此它读不到你的仓库。）
+- **反编造校验**：模型返回的每条引语都会被校验为它所引用的 changelog 的原文子串；引用的 URL 必须是我们提供给它的。校验失败的引语会被丢弃，该条记录被标记为低质量。AI 只影响 Confidence 和报告的 Why / Evidence 段落 —— 它**永远不会**改变 Recommendation。影响评分的字段（`mentioned_apis`、性能信号）同样必须在提供的文本中有依据。
 
 ## Project profile
 
@@ -202,7 +219,7 @@ Stack Radar 围绕三条规则设计：
 
 1. **只查公共 npm。** 查询硬编码到 `registry.npmjs.org`。如果你的 `.npmrc` 指向私有镜像，那个镜像**不会**被当作隐私信号 —— Stack Radar 把它当作镜像，而不是 "哪些包属于私有" 的判断依据。
 2. **workspace 包名一律不外发。** 本地 workspace 包会从 registry 查询中剔除（zero-leak）。内部 scope（例如 `@yourcompany/...`）在公共 registry 上可能 404 —— 这是预期行为。
-3. **AI 永远看不到源码。** 启用 `--use-ai` 时，发送的只有：包的元信息 + changelog 文本 + 粗粒度 profile 字段。`scan-api-usage` 和相关性 grep 只输出 `match_count` 和 `file_count` —— 没有路径、没有代码。
+3. **AI 永远看不到源码。** 启用 `--use-ai` 时，发送的只有：包的元信息 + changelog 文本 + 粗粒度 profile 字段。`scan-api-usage` 和相关性 grep 只输出 `match_count` 和 `file_count` —— 没有路径、没有代码。本地 CLI 后端（`--ai-backend claude-cli`/`codex-cli`）仍会经 CLI 的登录把 prompt 发往远端模型（并非离线），但每次调用都禁用 CLI 的文件工具 / 用只读沙箱，运行在空的临时目录里，并清理环境变量 —— 所以它读不到你的仓库。
 
 ## 输出目录结构
 

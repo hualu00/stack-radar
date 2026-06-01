@@ -28,6 +28,10 @@ export function validateEvidence(raw: unknown, input: AnalysisInput): Validation
   }
 
   const noteByUrl = new Map(input.notes.map((n) => [n.url, n]));
+  // The full supplied changelog text — the substring oracle for grounding the model's
+  // mentioned_apis (a hallucinated API name that's nowhere in the notes is dropped before
+  // it can drive the code-relevance scan).
+  const notesText = input.notes.map((n) => n.text).join('\n');
 
   const evidence: AiEvidenceItem[] = [];
   let scrubbed = false;
@@ -47,13 +51,19 @@ export function validateEvidence(raw: unknown, input: AnalysisInput): Validation
     evidence.push({ version: note.version, type: asEvidenceType(item.type), quote, url });
   }
 
+  // `performance_improvements` is the only extracted signal the rule engine acts on (R5 → Upgrade Now),
+  // so it must be grounded: trust it only when a grounded performance EVIDENCE item survived quote
+  // validation. Otherwise an ungrounded perf claim (easy with a prompt-only CLI schema) is dropped so
+  // it can't elevate the recommendation.
+  const claimedPerf = isObject(raw.extracted_signals) ? asStringArray(raw.extracted_signals.performance_improvements) : [];
+  const hasGroundedPerf = evidence.some((e) => e.type === 'performance');
   const signals: ExtractedSignals = isObject(raw.extracted_signals)
     ? {
         security_related: raw.extracted_signals.security_related === true,
         breaking_changes: asStringArray(raw.extracted_signals.breaking_changes),
         deprecations: asStringArray(raw.extracted_signals.deprecations),
         bugfixes: asStringArray(raw.extracted_signals.bugfixes),
-        performance_improvements: asStringArray(raw.extracted_signals.performance_improvements),
+        performance_improvements: hasGroundedPerf ? claimedPerf : [],
         new_features: asStringArray(raw.extracted_signals.new_features),
       }
     : emptyExtractedSignals();
@@ -65,6 +75,9 @@ export function validateEvidence(raw: unknown, input: AnalysisInput): Validation
     quality = 'low';
     caveats.push('Some AI-provided evidence did not match the supplied changelog and was dropped.');
   }
+  if (claimedPerf.length > 0 && !hasGroundedPerf) {
+    caveats.push('AI-reported performance improvements lacked a grounded changelog quote and were not used for scoring.');
+  }
 
   return {
     evidence: {
@@ -72,7 +85,10 @@ export function validateEvidence(raw: unknown, input: AnalysisInput): Validation
       summary: asString(raw.summary),
       evidence,
       extracted_signals: signals,
-      mentioned_apis: asStringArray(raw.mentioned_apis),
+      // Ground mentioned_apis to names that occur as a WHOLE identifier in the supplied changelog
+      // text (not a mere substring) — else a hallucinated 'use' would be "grounded" by 'users', and
+      // its zero-match relevance scan could wrongly downgrade a breaking major to Watch.
+      mentioned_apis: asStringArray(raw.mentioned_apis).filter((a) => isIdentifierInText(a, notesText)),
       evidence_quality: quality,
       caveats,
     },
@@ -82,6 +98,13 @@ export function validateEvidence(raw: unknown, input: AnalysisInput): Validation
 
 function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+/** Whole-identifier match (mirrors the relevance searcher's word-boundary rule) so a name is
+ * grounded only if it appears as a standalone token, not as a substring of a larger word. */
+function isIdentifierInText(api: string, text: string): boolean {
+  const a = api.trim();
+  if (a === '') return false;
+  return new RegExp(`\\b${a.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(text);
 }
 function asString(v: unknown): string {
   return typeof v === 'string' ? v : '';

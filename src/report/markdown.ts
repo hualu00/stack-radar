@@ -249,13 +249,16 @@ function renderAppendix(allRecords: UpdateRecord[], scored: ScoredRecord[], aiUs
     out.push(
       aiUsage.analyzed === 0
         ? '- AI dry-run: no prompts printed (all candidate records were snoozed)'
-        : `- AI dry-run: prompts printed, no API calls (model would be ${aiUsage.model})`,
+        : `- AI dry-run: prompts printed, no calls (backend ${aiUsage.backend}, model would be ${aiUsage.model})`,
     );
   } else {
-    out.push(`- AI model: ${aiUsage.model}`);
-    out.push(`- Analyzed: ${aiUsage.analyzed} | API calls: ${aiUsage.calls} | from local cache: ${aiUsage.cached}`);
+    out.push(`- AI model: ${aiUsage.model} (backend: ${aiUsage.backend})`);
+    out.push(`- Analyzed: ${aiUsage.analyzed} | AI calls: ${aiUsage.calls} | from local cache: ${aiUsage.cached}`);
     out.push(
-      `- Tokens: ${aiUsage.input_tokens} input / ${aiUsage.output_tokens} output (prompt cache: ${aiUsage.cache_read_input_tokens} read, ${aiUsage.cache_creation_input_tokens} written)`,
+      // codex CLI doesn't surface token counts → say so rather than print a misleading 0/0.
+      aiUsage.backend === 'codex-cli'
+        ? '- Tokens: not reported by the codex CLI'
+        : `- Tokens: ${aiUsage.input_tokens} input / ${aiUsage.output_tokens} output (prompt cache: ${aiUsage.cache_read_input_tokens} read, ${aiUsage.cache_creation_input_tokens} written)`,
     );
   }
   return out;

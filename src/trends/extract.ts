@@ -1,15 +1,16 @@
 import { createHash } from 'node:crypto';
 import { DEFAULT_AI_MODEL } from '../ai/client.js';
 import { type LlmPrompt, type LlmTransport, createAnthropicTransport } from '../ai/transport.js';
-import type { TokenUsage } from '../types/ai.js';
+import type { AiBackend, TokenUsage } from '../types/ai.js';
 import type { ExtractedTool, FeedItem } from '../types/trend.js';
 import type { Cache } from '../utils/cache.js';
+import { canonicalToolKey } from './relations.js';
 
 /** Bump when the extraction prompt/schema changes; part of the cache key. */
 export const TREND_PROMPT_VERSION = 1;
 const TREND_CACHE_NAMESPACE = 'trends-extractions';
-/** A tool list is small; cap output tokens well below the default. */
-const MAX_OUTPUT_TOKENS = 1024;
+/** A tool list is small; cap output tokens well below the default (api backend). */
+export const MAX_OUTPUT_TOKENS = 1024;
 
 export interface TrendExtraction {
   tools: ExtractedTool[];
@@ -30,6 +31,8 @@ export interface TrendExtractorOptions {
   /** Injected in tests; defaults to the real Anthropic-backed transport. */
   transport?: LlmTransport;
   apiKey?: string;
+  /** Folded into the cache key so backends don't collide (omitted when 'api'). Default 'api'. */
+  backend?: AiBackend;
   onDryRun?: (item: FeedItem, prompt: LlmPrompt) => void;
 }
 
@@ -47,6 +50,7 @@ export function createTrendExtractor(options: TrendExtractorOptions = {}): Trend
   const model = options.model ?? DEFAULT_AI_MODEL;
   const transport = options.transport ?? createAnthropicTransport(model, options.apiKey, MAX_OUTPUT_TOKENS);
   const { cache, refresh = false, dryRun = false, onDryRun } = options;
+  const backend = options.backend ?? 'api';
 
   return {
     async extract(item: FeedItem): Promise<TrendExtraction> {
@@ -57,7 +61,7 @@ export function createTrendExtractor(options: TrendExtractorOptions = {}): Trend
         return { tools: [], usage: null, cached: false, status: 'dry-run' };
       }
 
-      const key = cacheKey(model, item);
+      const key = cacheKey(model, backend, item);
       if (cache && !refresh) {
         const hit = cache.readJson<ExtractedTool[]>(TREND_CACHE_NAMESPACE, key);
         if (Array.isArray(hit)) return { tools: hit, usage: null, cached: true, status: 'cached' }; // ignore corrupt non-array
@@ -107,18 +111,24 @@ export function validateExtraction(raw: unknown, text: string): ExtractedTool[] 
     if (display_name === '' || evidence_quote.trim() === '' || !text.includes(evidence_quote)) continue;
     if (seen.has(display_name.toLowerCase())) continue; // de-dup within one item
     seen.add(display_name.toLowerCase());
-    const hint = typeof t.canonical_hint === 'string' && t.canonical_hint.trim() !== '' ? t.canonical_hint.trim() : undefined;
+    // The quote-grounded display_name is the tool's identity; the hint may only REFINE it (supply an
+    // npm name), never REDIRECT it. So keep the hint only when it canonicalizes to the SAME key as the
+    // display_name. Mere presence in the text isn't enough — a multi-tool item could let a model attach
+    // another tool's package (e.g. '@tanstack/react-query' on a "Biome" item) and hijack the mention.
+    const rawHint = typeof t.canonical_hint === 'string' ? t.canonical_hint.trim() : '';
+    const hint = rawHint !== '' && canonicalToolKey(rawHint) === canonicalToolKey(display_name) ? rawHint : undefined;
     out.push(hint ? { display_name, canonical_hint: hint, evidence_quote } : { display_name, evidence_quote });
   }
   return out;
 }
 
-function cacheKey(model: string, item: FeedItem): string {
+function cacheKey(model: string, backend: AiBackend, item: FeedItem): string {
   return createHash('sha256')
     .update(
       JSON.stringify({
         v: TREND_PROMPT_VERSION,
         model,
+        ...(backend !== 'api' ? { backend } : {}),
         source_id: item.source_id,
         item_key: item.item_key,
         title: item.title,

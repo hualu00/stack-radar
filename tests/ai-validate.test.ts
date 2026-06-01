@@ -64,6 +64,40 @@ describe('validateEvidence', () => {
     expect(validateEvidence(rawOk({ evidence_quality: 'amazing' }), input).evidence.evidence_quality).toBe('low');
   });
 
+  it('grounds mentioned_apis to names present in the supplied changelog text', () => {
+    const r = validateEvidence(rawOk({ mentioned_apis: ['use', 'telepathy', 'defaultProps'] }), input);
+    // 'use' (in 'use() hook') and 'defaultProps' appear as whole identifiers; 'telepathy' is invented → dropped.
+    expect(r.evidence.mentioned_apis).toEqual(['use', 'defaultProps']);
+  });
+
+  it('requires a whole-identifier match, not a mere substring of a larger word', () => {
+    const customInput: AnalysisInput = { ...input, notes: [{ version: '19.0.0', url: 'https://gh/19', source: 'github_release', text: 'This release improves how users react to changes.' }] };
+    const r = validateEvidence(rawOk({ evidence: [], mentioned_apis: ['use', 'act', 'react', 'users'] }), customInput);
+    // 'use' (inside 'users') and 'act' (inside 'react') are not standalone → dropped; 'react'/'users' are whole words → kept.
+    expect(r.evidence.mentioned_apis).toEqual(['react', 'users']);
+  });
+
+  it('drops performance_improvements unless a grounded performance evidence item backs them', () => {
+    const r = validateEvidence(
+      rawOk({ extracted_signals: { security_related: false, breaking_changes: [], deprecations: [], bugfixes: [], performance_improvements: ['2x faster'], new_features: [] } }),
+      input,
+    );
+    expect(r.evidence.extracted_signals.performance_improvements).toEqual([]); // only a 'breaking' quote → not grounded
+    expect(r.evidence.caveats.join(' ')).toMatch(/performance improvements/i);
+  });
+
+  it('keeps performance_improvements when a grounded performance quote is present', () => {
+    const r = validateEvidence(
+      rawOk({
+        evidence: [{ version: '19.0.0', type: 'performance', quote: 'Added the use() hook.', url: 'https://gh/19' }],
+        extracted_signals: { security_related: false, breaking_changes: [], deprecations: [], bugfixes: [], performance_improvements: ['faster startup'], new_features: [] },
+      }),
+      input,
+    );
+    expect(r.evidence.extracted_signals.performance_improvements).toEqual(['faster startup']);
+    expect(r.scrubbed).toBe(false);
+  });
+
   it('keeps non-string signal entries out', () => {
     const r = validateEvidence(rawOk({ extracted_signals: { security_related: 'yes', breaking_changes: ['ok', 42, null], deprecations: [], bugfixes: [], performance_improvements: [], new_features: [] } }), input);
     expect(r.evidence.extracted_signals.security_related).toBe(false); // only `true` is truthy
