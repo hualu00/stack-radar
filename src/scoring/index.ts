@@ -4,13 +4,16 @@ import type { Relevance } from '../types/relevance.js';
 import type { ProjectContext, Recommendation, ScoreResult } from '../types/score.js';
 import type { StackJson } from '../types/stack.js';
 import { type Confidence, type UpdateRecord, emptyRequirements } from '../types/update.js';
-import { type BlockedResult, evaluateBlocked } from './blocked.js';
+import { type BlockedResult, evaluateBlocked, resolveProjectNode } from './blocked.js';
 import { scoreConfidence, scoreRisk, scoreUrgency, scoreValue } from './dimensions.js';
 import { applyProfile } from './profile-adjust.js';
 import { decideRecommendation } from './recommend.js';
 
 /** Build per-workspace locked-version maps from stack.json (for peer checks). */
-export function buildProjectContext(stack: StackJson): ProjectContext {
+export function buildProjectContext(
+  stack: StackJson,
+  opts?: { profileNode?: string | null; reviewed?: boolean },
+): ProjectContext {
   const lockedByWorkspace = new Map<string, Map<string, string>>();
   for (const item of stack.items) {
     if (!item.locked_version) continue;
@@ -21,7 +24,13 @@ export function buildProjectContext(stack: StackJson): ProjectContext {
     }
     byName.set(item.name, item.locked_version);
   }
-  return { nodeEngine: stack.runtime.node_engine, lockedByWorkspace };
+  const nodeEngine = resolveProjectNode({
+    profileNode: opts?.profileNode ?? null,
+    reviewed: opts?.reviewed ?? false,
+    nvmrc: stack.runtime.nvmrc ?? null,
+    enginesNode: stack.runtime.node_engine,
+  });
+  return { nodeEngine, lockedByWorkspace };
 }
 
 /**

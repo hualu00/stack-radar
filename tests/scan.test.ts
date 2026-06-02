@@ -2,6 +2,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { scanRepo } from '../src/scanner/index.js';
+import { nvmrcToRange } from '../src/scanner/nvmrc.js';
 
 const FIXTURES = fileURLToPath(new URL('./fixtures', import.meta.url));
 const fx = (name: string) => join(FIXTURES, name);
@@ -14,6 +15,7 @@ describe('scanRepo — npm-simple', () => {
     expect(s.repo.package_manager).toBe('npm');
     expect(s.repo.is_monorepo).toBe(false);
     expect(s.runtime.node_engine).toBe('>=18');
+    expect(s.runtime.nvmrc).toBe('v20.19');
     expect(s.runtime.typescript_version).toBe('5.4.5');
   });
 
@@ -69,8 +71,27 @@ describe('scanRepo — pnpm-mono (workspace attribution)', () => {
 describe('scanRepo — npm-mono (per-workspace resolution)', () => {
   const s = scanRepo(fx('npm-mono'));
 
+  it('sets runtime.nvmrc to null when absent', () => {
+    expect(s.runtime.nvmrc).toBeNull();
+  });
+
   it('resolves hoisted vs local versions per workspace', () => {
     expect(s.items.find((i) => i.name === 'react' && i.workspace === 'packages/a')?.locked_version).toBe('18.2.0');
     expect(s.items.find((i) => i.name === 'react' && i.workspace === 'packages/b')?.locked_version).toBe('17.0.2');
+  });
+});
+
+describe('nvmrcToRange', () => {
+  it('normalizes .nvmrc values into semver ranges', () => {
+    expect(nvmrcToRange('24')).toBe('24.x');
+    expect(nvmrcToRange('v24')).toBe('24.x');
+    expect(nvmrcToRange('20.19')).toBe('20.19.x');
+    expect(nvmrcToRange('20.19.0')).toBe('20.19.0');
+  });
+
+  it('returns null for unsupported, blank, or missing values', () => {
+    expect(nvmrcToRange('lts/iron')).toBeNull();
+    expect(nvmrcToRange('')).toBeNull();
+    expect(nvmrcToRange(null)).toBeNull();
   });
 });

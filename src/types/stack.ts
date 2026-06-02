@@ -44,6 +44,8 @@ export interface RepoInfo {
 export interface RuntimeInfo {
   /** From root package.json `engines.node`; null when absent. */
   node_engine: string | null;
+  /** Raw first non-empty line from root `.nvmrc`; null when absent or empty. */
+  nvmrc: string | null;
   /** Locked version of `typescript` (falls back to its declared range, then null). */
   typescript_version: string | null;
 }

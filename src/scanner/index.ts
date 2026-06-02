@@ -10,6 +10,7 @@ import {
   type PackageJson,
   readPackageJson,
 } from './package-json.js';
+import { readNvmrc } from './nvmrc.js';
 import { detectMonorepo, expandWorkspaces } from './workspace.js';
 
 interface ScanUnit {
@@ -74,6 +75,7 @@ export function scanRepo(repoPath: string): StackJson {
 
   const runtime: RuntimeInfo = {
     node_engine: getNodeEngine(rootPkg),
+    nvmrc: readNvmrc(repoPath),
     typescript_version: resolveTypescriptVersion(rootPkg, resolve),
   };
 

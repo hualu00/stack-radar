@@ -1,4 +1,5 @@
 import semver from 'semver';
+import { nvmrcToRange } from '../scanner/nvmrc.js';
 import type { ProjectContext } from '../types/score.js';
 import type { Requirements } from '../types/update.js';
 
@@ -10,6 +11,30 @@ export interface BlockedResult {
   caveats: string[];
   /** Required (non-optional) peers absent from the project — a risk bump, not a block. */
   missingPeers: string[];
+}
+
+export interface ProjectNodeInputs {
+  profileNode: string | null;
+  reviewed: boolean;
+  nvmrc: string | null;
+  enginesNode: string | null;
+}
+
+export function resolveProjectNode({ profileNode, reviewed, nvmrc, enginesNode }: ProjectNodeInputs): string | null {
+  if (reviewed && profileNode !== null) return profileNode;
+  return nvmrcToRange(nvmrc) ?? enginesNode;
+}
+
+export function nodeEngineDivergenceNote(enginesNode: string | null, projectNode: string | null): string | null {
+  if (!enginesNode || !projectNode) return null;
+  if (semver.validRange(enginesNode) === null || semver.validRange(projectNode) === null) return null;
+
+  const enginesMin = semver.minVersion(enginesNode);
+  const projectMin = semver.minVersion(projectNode);
+  if (!enginesMin || !projectMin) return null;
+  if (!semver.lt(enginesMin, projectMin)) return null;
+
+  return `engines.node \`${enginesNode}\` allows Node versions below your project's actual Node \`${projectNode}\` (from .nvmrc/profile); your declared support range may be inaccurate.`;
 }
 
 /**

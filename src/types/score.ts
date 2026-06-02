@@ -39,7 +39,7 @@ export interface ScoreResult {
 
 /** The project's current state, used to decide Blocked. */
 export interface ProjectContext {
-  /** Declared engines.node of the repo (stack.json runtime.node_engine). */
+  /** Authoritative project Node range used for compatibility blocking. */
   nodeEngine: string | null;
   /**
    * Locked versions per workspace: workspace -> (package name -> locked version).
