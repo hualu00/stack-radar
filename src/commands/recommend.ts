@@ -6,6 +6,7 @@ import { applyDecision, effectiveRecommendation, isActiveSnooze, resolveDecision
 import { loadDecisions } from '../decisions/store.js';
 import { type ApiSearcher, createApiSearcher } from '../relevance/searcher.js';
 import { renderReport, type ScoredRecord } from '../report/markdown.js';
+import { nodeEngineDivergenceNote } from '../scoring/blocked.js';
 import { buildProjectContext, finalRecommendation, scoreRecord } from '../scoring/index.js';
 import { hasUnreviewedMarkers, parseProfile } from '../scoring/profile.js';
 import type { AiEvidence, AiProgressEvent, AiRunSummary, AnalysisInput, AiStartInfo } from '../types/ai.js';
@@ -56,6 +57,7 @@ export interface RecommendOptions {
 interface ResolvedProfile {
   profile: ProjectProfile;
   source: string;
+  reviewed: boolean;
 }
 
 const AI_CONCURRENCY = 4;
@@ -100,10 +102,11 @@ function resolveProfile(repoPath: string, options: RecommendOptions): ResolvedPr
   const text = readText(path);
   if (text === null) throw new Error(`Profile not found or unreadable: ${path}`);
   const profile = parseProfile(text);
-  if (hasUnreviewedMarkers(text)) {
+  const reviewed = !hasUnreviewedMarkers(text);
+  if (!reviewed) {
     console.error(`WARNING: ${path} still contains "# NEEDS REVIEW" markers — recommendations may be skewed. Review the profile.`);
   }
-  return { profile, source: path };
+  return { profile, source: path, reviewed };
 }
 
 /**
@@ -142,7 +145,11 @@ export async function runRecommend(options: RecommendOptions): Promise<void> {
 
   const { evidenceByKey, relevanceByKey, aiUsage } = await runAi(repoPath, scorables.filter((r) => !isHidden(r)), profile, options);
 
-  const ctx = buildProjectContext(stack);
+  const ctx = resolvedProfile
+    ? buildProjectContext(stack, { profileNode: profile?.hard_constraints.node ?? null, reviewed: resolvedProfile.reviewed })
+    : buildProjectContext(stack);
+  const divergence = nodeEngineDivergenceNote(stack.runtime.node_engine, ctx.nodeEngine);
+  if (divergence) console.error(`WARNING: ${divergence}`);
   const scored: ScoredRecord[] = scorables.map((record) => {
     const key = recordKey(record);
     const evidence = evidenceByKey.get(key);
