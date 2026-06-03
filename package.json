@@ -1,5 +1,5 @@
 {
-  "name": "stack-radar",
+  "name": "stack-radar-cli",
   "version": "0.1.0",
   "description": "Dependency intelligence CLI for frontend repos",
   "type": "module",
@@ -7,7 +7,8 @@
     "stack-radar": "dist/cli.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "README.zh-CN.md"
   ],
   "engines": {
     "node": ">=20"
@@ -17,9 +18,35 @@
     "dev": "tsx src/cli.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
   },
+  "keywords": [
+    "dependencies",
+    "dependency-management",
+    "upgrade",
+    "npm",
+    "cli",
+    "frontend",
+    "dependabot",
+    "semver",
+    "changelog",
+    "security",
+    "ai"
+  ],
+  "author": "hualu00 <1830807+hualu00@users.noreply.github.com>",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hualu00/stack-radar.git"
+  },
+  "homepage": "https://github.com/hualu00/stack-radar#readme",
+  "bugs": {
+    "url": "https://github.com/hualu00/stack-radar/issues"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/"
+  },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.99.0",
     "@pnpm/lockfile-file": "^9.1.3",

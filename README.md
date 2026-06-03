@@ -33,12 +33,23 @@ Side commands: `init-profile` (draft `project-profile.yaml`), `scan-api-usage` (
 - **Optional: `GITHUB_TOKEN` or `GH_TOKEN`** — without it, `check-updates` is rate-limited and degrades to CHANGELOG-only for some packages.
 - **Optional: `ANTHROPIC_API_KEY`** — required for AI features **only with the default `api` backend**. To skip the key entirely, route AI through a logged-in local CLI with `--ai-backend claude-cli` / `codex-cli` (see [Using AI](#using-ai-opt-in)).
 
-## Install & build
-
-Not yet published to npm. Build from source:
+## Install
 
 ```bash
-git clone <repo-url> stack-radar
+# Run without installing
+npx stack-radar-cli scan --repo <path-to-your-repo>
+
+# Or install globally — the installed command is `stack-radar`
+npm install -g stack-radar-cli
+stack-radar scan --repo <path-to-your-repo>
+```
+
+Published on npm as [`stack-radar-cli`](https://www.npmjs.com/package/stack-radar-cli); the installed command (the `bin`) is `stack-radar`.
+
+### Build from source (contributors)
+
+```bash
+git clone https://github.com/hualu00/stack-radar.git
 cd stack-radar
 npm install
 npm run build
@@ -47,6 +58,8 @@ npm run build
 This compiles TypeScript to `dist/`. Run the CLI as `node dist/cli.js <command>`.
 
 ## Quick start
+
+> Examples below use `node dist/cli.js` (from-source). If you installed via npm, use `stack-radar <command>` (or `npx stack-radar-cli <command>`) instead.
 
 ```bash
 node dist/cli.js scan          --repo <path-to-your-repo>

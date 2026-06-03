@@ -33,12 +33,23 @@ recommend     → .stack-radar/reports/<date>.md
 - **可选：`GITHUB_TOKEN` 或 `GH_TOKEN`** —— 不设的话 `check-updates` 会受 GitHub 速率限制，部分包会降级为只读 CHANGELOG。
 - **可选：`ANTHROPIC_API_KEY`** —— AI 功能**仅在默认 `api` 后端下**需要。想完全不用 key，就用 `--ai-backend claude-cli` / `codex-cli` 把 AI 走本地已登录的 CLI（见[使用 AI](#使用-ai默认关闭)）。
 
-## 安装与构建
-
-暂未发布到 npm，从源码构建：
+## 安装
 
 ```bash
-git clone <repo-url> stack-radar
+# 无需安装,直接运行
+npx stack-radar-cli scan --repo <path-to-your-repo>
+
+# 或全局安装 —— 安装后的命令是 `stack-radar`
+npm install -g stack-radar-cli
+stack-radar scan --repo <path-to-your-repo>
+```
+
+npm 包名为 [`stack-radar-cli`](https://www.npmjs.com/package/stack-radar-cli);安装后的命令(`bin`)是 `stack-radar`。
+
+### 从源码构建(贡献者)
+
+```bash
+git clone https://github.com/hualu00/stack-radar.git
 cd stack-radar
 npm install
 npm run build
@@ -47,6 +58,8 @@ npm run build
 会把 TypeScript 编译到 `dist/`。运行 CLI：`node dist/cli.js <command>`。
 
 ## 快速开始
+
+> 下面的示例用 `node dist/cli.js`(从源码)。若通过 npm 安装,改用 `stack-radar <command>`(或 `npx stack-radar-cli <command>`)。
 
 ```bash
 node dist/cli.js scan          --repo <path-to-your-repo>
